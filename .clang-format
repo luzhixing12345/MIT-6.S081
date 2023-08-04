@@ -16,3 +16,4 @@ BraceWrapping:
   BeforeCatch: true
   BeforeElse: true
   IndentBraces: true
+SortIncludes: false
