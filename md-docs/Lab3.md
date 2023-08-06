@@ -184,3 +184,94 @@ ugetpid_test: OK
 pgaccess_test starting
 pgtbltest: pgaccess_test failed: incorrect access bits set, pid=3
 ```
+
+**Q: Which other xv6 system call(s) could be made faster using this shared page? Explain how.**
+
+这里的 using this shared page 并不是单纯指 usyscallpage 这个结构, 而是指这种添加多分配一个只读页面的加速方式. 所以对于任何直接或间接调用 copyout 功能的系统调用都将被加速, 因为它节省了复制数据的时间.此外,纯粹用于信息检索的系统调用(如本节中的 getpid, fstat, lstat 等)也会更快.这是因为不再需要因为间接调用 sys 系统调用而导致陷入和退出内核模式的耗时, 而是可以在用户模式下读取相应的数据.
+
+## Print a page table
+
+第二题要求对于一个页表 pagetable 按照格式输出其所有页表项
+
+首先按照说明在 kernel/defs.h 添加函数定义, kernel/exec.c 中添加函数调用
+
+然后浏览一下 freewalk 函数, 已经给出了比较关键的函数使用方法, 即 `pte_t pte = pagetable[i];` 获取 PTE, `uint64 child = PTE2PA(pte);` 计算对应的 PA, 并递归调用直至最后一级页表
+
+```c
+// Recursively free page-table pages.
+// All leaf mappings must already have been removed.
+void freewalk(pagetable_t pagetable) {
+    // there are 2^9 = 512 PTEs in a page table.
+    for (int i = 0; i < 512; i++) {
+        pte_t pte = pagetable[i];
+        if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+            // this PTE points to a lower-level page table.
+            uint64 child = PTE2PA(pte);
+            freewalk((pagetable_t)child);
+            pagetable[i] = 0;
+        } else if (pte & PTE_V) {
+            panic("freewalk: leaf");
+        }
+    }
+    kfree((void *)pagetable);
+}
+```
+
+因此可以仿照完成 `vmprint`, 递归调用 vm_table_print 输出信息, depth 为深度信息. 对于最后一级页表 `else if (pte & PTE_V)` 的情况不再做递归处理
+
+```c
+void vm_table_print(pagetable_t pagetable, int depth) {
+    // there are 2^9 = 512 PTEs in a page table.
+    for (int i = 0; i < 512; i++) {
+        pte_t pte = pagetable[i];
+        if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+            // this PTE points to a lower-level page table.
+            uint64 child = PTE2PA(pte);
+            printf("..");
+            for (int i = 0; i < depth; i++) {
+                printf(" ..");
+            }
+            printf("%d: pte %p pa %p\n", i, pte, (pagetable_t)child);
+            vm_table_print((pagetable_t)child, depth + 1);
+        } else if (pte & PTE_V) {
+            uint64 child = PTE2PA(pte);
+            printf("..");
+            for (int i = 0; i < depth; i++) {
+                printf(" ..");
+            }
+            printf("%d: pte %p pa %p\n", i, pte, (pagetable_t)child);
+        }
+    }
+}
+
+void vmprint(pagetable_t pagetable) {
+    printf("page table %p\n", pagetable);
+    vm_table_print(pagetable, 0);
+}
+```
+
+> 注意这里的输出格式即可
+
+```bash
+page table 0x0000000087f6b000
+..0: pte 0x0000000021fd9c01 pa 0x0000000087f67000
+.. ..0: pte 0x0000000021fd9801 pa 0x0000000087f66000
+.. .. ..0: pte 0x0000000021fda01b pa 0x0000000087f68000
+.. .. ..1: pte 0x0000000021fd9417 pa 0x0000000087f65000
+.. .. ..2: pte 0x0000000021fd9007 pa 0x0000000087f64000
+.. .. ..3: pte 0x0000000021fd8c17 pa 0x0000000087f63000
+..255: pte 0x0000000021fda801 pa 0x0000000087f6a000
+.. ..511: pte 0x0000000021fda401 pa 0x0000000087f69000
+.. .. ..509: pte 0x0000000021fdcc13 pa 0x0000000087f73000
+.. .. ..510: pte 0x0000000021fdd007 pa 0x0000000087f74000
+.. .. ..511: pte 0x0000000020001c0b pa 0x0000000080007000
+```
+
+```bash
+make GRADEFLAGS=printout grade
+```
+
+## 参考
+
+- [6.s081_2022_lab3](https://jinzhec2.github.io/blog/post/6.s081_2022_lab3/)
+- [xv6-labs-2022-solutions](https://github.com/relaxcn/xv6-labs-2022-solutions)
