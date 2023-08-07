@@ -271,6 +271,214 @@ page table 0x0000000087f6b000
 make GRADEFLAGS=printout grade
 ```
 
+**Explain the output of vmprint in terms of Fig 3-4 from the text. What does page 0 contain? What is in page 2? When running in user mode, could the process read/write the memory mapped by page 1? What does the third to last page contain?**
+
+> 这个问题我看了好多大佬写的博客, 感觉说的答案的都不太对...
+
+vmprint 函数输出了 7 个页表项, 那么我们需要做的是了解清楚这 7 个页表对应的是什么内容, 在哪里/何时被创建的.
+
+首先浏览一下 exec 函数, 关键部分截取如下所示. 先通过 `pagetable = proc_pagetable(p)` 创建一个初始进程页表. 然后读取 user/_init 的 ELF 文件并进行解析. 其中影响页表的操作是 `uvmalloc`, 可以发现有两处使用了 uvmalloc, 分别是在 ELF 文件解析时以及后面出现一次, 我们分别来分析一下
+
+> 更准确是说是 uvmalloc 内部的 `mappages` 完成了对页表项的添加
+
+```c
+int exec(char *path, char **argv) {
+    // ...
+    if ((pagetable = proc_pagetable(p)) == 0)
+            goto bad;
+
+    // Load program into memory.
+    for (i = 0, off = elf.phoff; i < elf.phnum; i++, off += sizeof(ph)) {
+        if (readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
+            goto bad;
+        if (ph.type != ELF_PROG_LOAD) {
+            continue;
+        }
+        if (ph.memsz < ph.filesz)
+            goto bad;
+        if (ph.vaddr + ph.memsz < ph.vaddr)
+            goto bad;
+        if (ph.vaddr % PGSIZE != 0)
+            goto bad;
+        uint64 sz1;
+        if ((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+            goto bad;
+        sz = sz1;
+        if (loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
+            goto bad;
+    }
+    iunlockput(ip);
+    end_op();
+    ip = 0;
+
+    p = myproc();
+    uint64 oldsz = p->sz;
+
+    // Allocate two pages at the next page boundary.
+    // Make the first inaccessible as a stack guard.
+    // Use the second as the user stack.
+    sz = PGROUNDUP(sz);
+    uint64 sz1;
+    if ((sz1 = uvmalloc(pagetable, sz, sz + 2 * PGSIZE, PTE_W)) == 0)
+        goto bad;
+    sz = sz1;
+    uvmclear(pagetable, sz - 2 * PGSIZE);
+    // ...
+    if (p->pid == 1) {
+        vmprint(p->pagetable);
+    }
+    // ...
+}
+```
+
+我们首先在 `pagetable = proc_pagetable(p)` 后面添加一个 vmprint(pagetable) 查看一下初始化之时的页表情况, 如下所示. 不难发现 page509 510 511 三个页表分别对应 TRAMPOLINE TRAPFRAME USYSCALL
+
+```bash
+page table 0x0000000087f6b000
+..255: pte 0x0000000021fda801 pa 0x0000000087f6a000
+.. ..511: pte 0x0000000021fda401 pa 0x0000000087f69000
+.. .. ..509: pte 0x0000000021fdcc13 pa 0x0000000087f73000
+.. .. ..510: pte 0x0000000021fdd007 pa 0x0000000087f74000
+.. .. ..511: pte 0x0000000020001c0b pa 0x0000000080007000
+```
+
+接下来看一下 ELF 内部的 uvmalloc, 首先可以使用 objdump 工具来查看一下 user/_init (即第一个进程 pid = 1) 的段表, 如下所示. 可以看到有四个段, 同时注意到内部逻辑中使用了 `(ph.type != ELF_PROG_LOAD)` 进行判断, 所以只会读取并为 LOAD 段分配内存. 两个 LOAD 段大小分别为 4096 和 16, 对应 TEXT 与 DATA 段. 所以 page0 page1 分别对应 TEXT 和 DATA 段, 用户态也可以 读/写 page1
+
+```bash
+(base) kamilu@LZX:~/xv6-labs-2022$ objdump -p user/_init
+
+user/_init:     file format elf64-little
+
+Program Header:
+0x70000003 off    0x0000000000006ce4 vaddr 0x0000000000000000 paddr 0x0000000000000000 align 2**0
+         filesz 0x0000000000000033 memsz 0x0000000000000000 flags r--
+    LOAD off    0x0000000000001000 vaddr 0x0000000000000000 paddr 0x0000000000000000 align 2**12
+         filesz 0x0000000000001000 memsz 0x0000000000001000 flags r-x
+    LOAD off    0x0000000000002000 vaddr 0x0000000000001000 paddr 0x0000000000001000 align 2**12
+         filesz 0x0000000000000010 memsz 0x0000000000000030 flags rw-
+   STACK off    0x0000000000000000 vaddr 0x0000000000000000 paddr 0x0000000000000000 align 2**4
+         filesz 0x0000000000000000 memsz 0x0000000000000000 flags rw-
+```
+
+接下来作者源代码写了一段注释给出了说明: 即 page2 为堆栈保护, page3 是用户栈
+
+```c
+// Allocate two pages at the next page boundary.
+// Make the first inaccessible as a stack guard.
+// Use the second as the user stack.
+```
+
+书中图 3.4 如下, 可以在上面看到 vmprint 共输出了 7 条页表信息, 刚好对应下图中 7 个部分(usyscallpage 是上题中添加的为了加速的页面)
+
+![20230807172130](https://raw.githubusercontent.com/learner-lu/picbed/master/20230807172130.png)
+
+## Detect which pages have been accessed
+
+第三个实验的内容是完成一个系统调用 pgaccess 用于检测页面是是否被访问了, 先浏览 user/pgtbltest.c 看一下 pgaccess 的使用方法, 对应的代码如下. 可以看到大概意思是说访问了 1 2 30 三个数组处的值, 此时 abits 中对应这三位的 bit map 应为 1.
+
+```c
+void pgaccess_test() {
+    char *buf;
+    unsigned int abits;
+    printf("pgaccess_test starting\n");
+    testname = "pgaccess_test";
+    buf = malloc(32 * PGSIZE);
+    if (pgaccess(buf, 32, &abits) < 0)
+        err("pgaccess failed");
+    buf[PGSIZE * 1] += 1;
+    buf[PGSIZE * 2] += 1;
+    buf[PGSIZE * 30] += 1;
+    if (pgaccess(buf, 32, &abits) < 0)
+        err("pgaccess failed");
+    if (abits != ((1 << 1) | (1 << 2) | (1 << 30)))
+        err("incorrect access bits set");
+    free(buf);
+    printf("pgaccess_test: OK\n");
+}
+```
+
+实验比较贴心的帮我们把创建一个新的系统调用的重复性工作完成了, 只需要完成 kernel/sysproc.c 中的 sys_pgaccess 即可
+
+首先阅读 RISCV 手册找到 xv6 对应的 sv39, 其 PTE 的标志位第 6 位对应 Access
+
+> P85
+
+![20230807212422](https://raw.githubusercontent.com/learner-lu/picbed/master/20230807212422.png)
+
+修改 kernel/riscv.h 添加 PTE_A 标志位
+
+```c
+#define PTE_V (1L << 0) // valid
+#define PTE_R (1L << 1)
+#define PTE_W (1L << 2)
+#define PTE_X (1L << 3)
+#define PTE_U (1L << 4) // user can access
+#define PTE_A (1L << 6)
+```
+
+关于标志位 A 的描述信息如下, 文中特别提及了需要原子操作, 所以需要注意上锁
+
+> P81
+
+![20230807212343](https://raw.githubusercontent.com/learner-lu/picbed/master/20230807212343.png)
+
+代码实现如下, 先获取三个参数, 然后为当前进程上锁, 使用 `addr + i*PGSIZE` 以虚拟页大小为单位遍历每一个虚拟地址, 调用 walk 通过 va 得到页表地址, 判断其 `PTE_A` 位是否为 1, 如果为 1 则添加 mask 对应位置并置零, 最后解锁, 然后使用 copyout 将 mask 复制到 mask_addr 的位置
+
+```c
+#ifdef LAB_PGTBL
+int sys_pgaccess(void) {
+    
+    uint64 addr, mask_addr;
+    int len;
+    argaddr(0, &addr);
+    argint(1, &len);
+    argaddr(2, &mask_addr);
+
+    struct proc *p = myproc();
+    uint64 mask = 0;
+    acquire(&p->lock);
+    for (int i=0;i<len;i++) {
+        pte_t* pte = walk(p->pagetable, addr + i*PGSIZE, 0);
+        if (*pte & PTE_A) {
+            mask |= (1 << i);
+            *pte ^= PTE_A;
+        }
+    }
+    release(&p->lock);
+    if(copyout(p->pagetable, mask_addr, (char *)&mask, sizeof(mask)) < 0)
+      return -1;
+    return 0;
+}
+#endif
+```
+
+```bash
+(base) kamilu@LZX:~/xv6-labs-2022$ make grade
+== Test pgtbltest ==
+$ make qemu-gdb
+(4.0s)
+== Test   pgtbltest: ugetpid ==
+  pgtbltest: ugetpid: OK
+== Test   pgtbltest: pgaccess ==
+  pgtbltest: pgaccess: OK
+== Test pte printout ==
+$ make qemu-gdb
+pte printout: OK (0.5s)
+== Test answers-pgtbl.txt == answers-pgtbl.txt: FAIL
+    Cannot read answers-pgtbl.txt
+== Test usertests ==
+$ make qemu-gdb
+(71.4s)
+== Test   usertests: all tests ==
+  usertests: all tests: OK
+== Test time ==
+time: FAIL
+    Cannot read time.txt
+Score: 40/46
+```
+
+> fail 的两个是 answer 和 time.txt, 无所谓
+
 ## 参考
 
 - [6.s081_2022_lab3](https://jinzhec2.github.io/blog/post/6.s081_2022_lab3/)
