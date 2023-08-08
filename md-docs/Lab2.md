@@ -129,7 +129,7 @@ void usertrap(void) {
 
 浏览 user/initcode.S 可以看到在此时为初始化阶段由用户空间执行系统调用 syscall , 对应的系统调用号为 SYS_exec
 
-```x86asm
+```riscvasm
 # Initial process that execs /init.
 # This code runs in user space.
 
@@ -253,7 +253,7 @@ panic: kerneltrap
 
 在 kernel/kernel.asm 中查找到此位置, 该汇编指令为 `lw a3, 0(zero)`, 也就是对应我们的修改 num = * (int *) 0;
 
-```asm
+```riscvasm
     80001ff6:	00002683          	lw	a3,0(zero) # 0 <_entry-0x80000000>
 ```
 
@@ -310,6 +310,8 @@ $1 = "initcode\000\000\000\000\000\000\000"
 (gdb) p p->pid
 $2 = 1
 ```
+
+如果想使用 vscode + gdb 调试可以参考 [从零开始使用Vscode调试XV6](https://zhuanlan.zhihu.com/p/501901665), 关键信息是把 .gdbinit 中的 `target remote 127.0.0.1:26000` 注释掉
 
 ## trace
 
