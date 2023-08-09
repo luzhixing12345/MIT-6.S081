@@ -310,39 +310,39 @@ err:
     return -1;
 }
 
-
 int is_cow_page(pagetable_t pagetable, uint64 va) {
     pte_t *pte = walk(pagetable, va, 0);
     return (*pte & PTE_V) && (*pte & PTE_COW);
 }
 
-int alloc_cow_page(pagetable_t pagetable, uint64 va) {
+uint64 alloc_cow_page(pagetable_t pagetable, uint64 va) {
     char *mem;
     if (va >= MAXVA)
         return 0;
     pte_t *pte = walk(pagetable, va, 0);
     uint64 pa = walkaddr(pagetable, va);
     if (pte == 0) {
-        return -1;
+        return 0;
     }
     if ((*pte & PTE_COW) == 0 || (*pte & PTE_U) == 0 || (*pte & PTE_V) == 0) {
-        return -1;
+        return 0;
     }
 
     if (page_reference[pa / PGSIZE] == 1) {
         *pte |= PTE_W;
         *pte ^= PTE_COW;
+        return pa;
     } else {
         if ((mem = kalloc()) == 0) {
-            return -1;
+            return 0;
         }
         memmove(mem, (char *)pa, PGSIZE);
         kfree((void *)pa);
         uint flags = PTE_FLAGS(*pte);
         *pte = (PA2PTE(mem) | flags | PTE_W);
         *pte ^= PTE_COW;
+        return (uint64)mem;
     }
-    return 0;
 }
 
 // mark a PTE invalid for user access.
@@ -365,36 +365,14 @@ int copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len) {
     while (len > 0) {
         va0 = PGROUNDDOWN(dstva);
         pa0 = walkaddr(pagetable, va0);
-        // if (is_cow_page(pagetable, va0)) {
-        // pa0 = alloc_cow_page(pagetable, va0);
-        // }
         if (pa0 == 0)
             return -1;
         struct proc *p = myproc();
         pte_t *pte = walk(pagetable, va0, 0);
         if (*pte == 0)
             p->killed = 1;
-        // check
         if (is_cow_page(pagetable, va0)) {
-            char *mem;
-            if ((mem = kalloc()) == 0) {
-                // kill the process
-                p->killed = 1;
-            } else {
-                memmove(mem, (char *)pa0, PGSIZE);
-                // PAY ATTENTION!!!
-                // This statement must be above the next statement
-                uint flags = PTE_FLAGS(*pte);
-                // decrease the reference count of old memory that va0 point
-                // and set pte to 0
-                uvmunmap(pagetable, va0, 1, 1);
-                // change the physical memory address and set PTE_W to 1
-                *pte = (PA2PTE(mem) | flags | PTE_W);
-                // set PTE_RSW to 0
-                *pte &= ~PTE_COW;
-                // update pa0 to new physical memory address
-                pa0 = (uint64)mem;
-            }
+            pa0 = alloc_cow_page(pagetable, va0);
         }
         n = PGSIZE - (dstva - va0);
         if (n > len)

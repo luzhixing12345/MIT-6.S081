@@ -67,7 +67,7 @@ void usertrap(void) {
             p->killed = 1;
         }
 
-        if (alloc_cow_page(p->pagetable, va) == -1) {
+        if (alloc_cow_page(p->pagetable, va) == 0) {
             p->killed = 1;
         }
 
