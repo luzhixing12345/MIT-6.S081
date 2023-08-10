@@ -3,7 +3,7 @@
 
 > [实验文档](https://pdos.csail.mit.edu/6.828/2022/labs/cow.html)
 
-lab5 只有这一个实验, 实现写时复制
+lab5 只有这一个实验, 实现写时复制, 本章没有对应任何一个章节, 算是对于前面页表和中断知识点的总结复习
 
 ## Implement copy-on-write fork
 
