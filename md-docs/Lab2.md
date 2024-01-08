@@ -42,14 +42,32 @@ For more information about this security protection see the
         info "(gdb)Auto-loading safe path"
 ```
 
-新建 `~/.config/gdb/gdbinit`, 并写入 `set auto-load safe-path /` 后重新执行, gdb 启动之时会优先执行 .gdbinit 当中的内容作为默认配置
+新建 `~/.config/gdb/gdbinit`, 并写入 `set auto-load safe-path /` 后重新执行, 赋予权限之后就没有警告了
 
 ```bash
+mkdir -p ~/.config/gdb
+echo "set auto-load safe-path /" >> ~/.config/gdb/gdbinit
+```
+
+gdb 启动之时会优先执行 .gdbinit 当中的内容作为默认配置
+
+```bash
+# 关闭 GDB 操作时的确认提示
 set confirm off
+
+# 设置目标体系结构为 RISC-V 的 64 位版本
 set architecture riscv:rv64
+
+# 连接到远程目标,IP 地址为 127.0.0.1,端口为 26000
 target remote 127.0.0.1:26000
+
+# 加载符号文件,这里指定的是内核的符号文件路径为 kernel/kernel
 symbol-file kernel/kernel
+
+# 设置在显示源代码时同时显示汇编代码
 set disassemble-next-line auto
+
+# 启用 RISC-V 使用压缩断点
 set riscv use-compressed-breakpoints yes
 ```
 
