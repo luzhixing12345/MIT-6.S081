@@ -53,7 +53,7 @@ UPROGS=\
 	$U/_sleep
 ```
 
-对于用户编写的程序以 _ 开头, 在 Makefile 中有对应的处理模块来完成单文件的编译链接
+对于用户程序会由编译器编译得到以 `_` 开头的可执行文件, 导出符号表, 最后由 mkfs/mkfs 统一打包到 `fs.img` 镜像中
 
 ```Makefile
 _%: %.o $(ULIB)
@@ -388,6 +388,8 @@ make GRADEFLAGS=xargs grade
 
 ### uptime
 
+uptime 的内容比较简单, 只需要调用提供的用户态 uptime 函数即可
+
 ```c
 #include "kernel/types.h"
 #include "user/user.h"
@@ -407,6 +409,29 @@ $ uptime
 $ uptime
 105
 ```
+
+### better find
+
+要求在名称匹配中支持正则表达式, `grep.c` 中提供了一个简单的正则匹配函数 `match`, 只需要将其迁移过来, 并且将 find 中原先的 `strcmp` 替换为 `match` 即可. 见 [commit](https://github.com/luzhixing12345/MIT-6.S081/commit/a8e0a84c3fa0d288ef856a95d7eeabab2181d447)
+
+```bash
+$ find . e$
+./zombie
+./uptime
+./console
+$ find . ^s
+./sh
+./stressfs
+./sleep
+```
+
+> 给出的 match 所支持的正则不多, 这里简单匹配一下以 `e` 结尾的和以 `s` 开头的
+
+### better sh
+
+要求改进一下当前的 sh.c 以获取一个更好的 shell 体验
+
+> 这个不太想做了, 之前 csapp 里已经写过一次 shell lab 了, 虽然功能很差劲不过先这样吧
 
 ## 总结
 

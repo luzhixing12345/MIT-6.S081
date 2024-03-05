@@ -309,7 +309,7 @@ $1 = 13
 
 **Q7: What is the name of the binary that was running when the kernel paniced? What is its process id (pid)?**
 
-重新在 syscall 打一个断点, 然后单步两次越过 struct proc *p 被赋值, 使用 p 打印 *p 的 name 和 pid, 可以看到是 initcode 和 1, 也就是 xv6 启动时候的第一个进程
+重新在 syscall 打一个断点, 然后单步两次越过 struct proc \*p 被赋值, 使用 p 打印 \*p 的 name 和 pid, 可以看到是 initcode 和 1, 也就是 xv6 启动时候的第一个进程
 
 ```bash
 (gdb) b syscall
@@ -679,3 +679,4 @@ make GRADEFLAGS=sysinfo grade
 
 - [xv6-labs-2022-solutions](https://github.com/relaxcn/xv6-labs-2022-solutions)
 - [miigon blog s081-lab2-system-calls](https://blog.miigon.net/posts/s081-lab2-system-calls/)
+- [从零开始使用Vscode调试XV6](https://zhuanlan.zhihu.com/p/501901665)
